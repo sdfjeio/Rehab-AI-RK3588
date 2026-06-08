@@ -1,51 +1,107 @@
 #pragma once
 
+// ============================================================================
+// cv_pipeline.h — 视觉管线: NPU 推理 → 关键点解码 → 骨骼绘制 → DTW 评分
+// ============================================================================
+
+#include <deque>
+#include <memory>
 #include <string>
 #include <vector>
-#include <opencv2/opencv.hpp>
 
-// YOLO-Pose 的 17 个 COCO 关键点索引
-enum class Keypoint : int {
-    NOSE = 0, LEFT_EYE = 1, RIGHT_EYE = 2,
-    LEFT_EAR = 3, RIGHT_EAR = 4,
-    LEFT_SHOULDER = 5, RIGHT_SHOULDER = 6,
-    LEFT_ELBOW = 7, RIGHT_ELBOW = 8,
-    LEFT_WRIST = 9, RIGHT_WRIST = 10,
-    LEFT_HIP = 11, RIGHT_HIP = 12,
-    LEFT_KNEE = 13, RIGHT_KNEE = 14,
-    LEFT_ANKLE = 15, RIGHT_ANKLE = 16
+#include <opencv2/core.hpp>
+
+// ---------------------------------------------------------------------------
+// COCO 17 关键点枚举
+// ---------------------------------------------------------------------------
+enum class Kpt : int {
+    NOSE = 0,
+    LEFT_EYE, RIGHT_EYE,
+    LEFT_EAR, RIGHT_EAR,
+    LEFT_SHOULDER, RIGHT_SHOULDER,
+    LEFT_ELBOW, RIGHT_ELBOW,
+    LEFT_WRIST, RIGHT_WRIST,
+    LEFT_HIP, RIGHT_HIP,
+    LEFT_KNEE, RIGHT_KNEE,
+    LEFT_ANKLE, RIGHT_ANKLE,
+    COUNT = 17
 };
 
-struct PoseResult {
-    std::vector<cv::Point2f> keypoints; // 17 个关键点 (归一化坐标 0~1)
-    std::vector<float> scores;          // 每个关键点的置信度
+// ---------------------------------------------------------------------------
+// 单次检测结果
+// ---------------------------------------------------------------------------
+struct Detection {
+    cv::Rect2f bbox;                       // 边界框 (原始图像坐标)
+    cv::Point2f kpts[17];                  // 关键点 (原始图像坐标, 0~W-1, 0~H-1)
+    float      kptScores[17];              // 各关键点置信度
+    float      objScore;                   // 目标置信度
 };
 
-// ==========================================
-// CV 管线: 摄像头 → RKNN推理 → 关节角度 → DTW评分
-// ==========================================
+// ---------------------------------------------------------------------------
+// 关节角度 (度)
+// ---------------------------------------------------------------------------
+struct JointAngles {
+    float leftKnee  = 0.0f;   // 左膝
+    float rightKnee = 0.0f;   // 右膝
+    float leftElbow = 0.0f;   // 左肘
+    float rightElbow = 0.0f;  // 右肘
+    float leftHip   = 0.0f;   // 左髋
+    float rightHip  = 0.0f;   // 右髋
+};
+
+// ---------------------------------------------------------------------------
+// DTW 评分结果
+// ---------------------------------------------------------------------------
+struct DTWResult {
+    float score           = 0.0f;   // 归一化评分 0~1
+    float rawDistance     = 0.0f;   // 原始 DTW 距离
+    int   matchedLength   = 0;      // 匹配使用的帧数
+    bool  valid           = false;
+};
+
+// ---------------------------------------------------------------------------
+// 标准参考姿态 (用于侧边对比)
+// ---------------------------------------------------------------------------
+struct ReferencePose {
+    std::string actionName;
+    cv::Point2f kpts[17];              // 参考关键点 (画布坐标)
+    std::vector<float> kneeAngles;     // 膝角序列 (来自 golden template)
+};
+
+// ============================================================================
+// CVPipeline — 视觉管线主类
+// ============================================================================
 class CVPipeline {
 public:
-    CVPipeline(const std::string& modelPath);
+    explicit CVPipeline(const std::string& rknnModelPath);
     ~CVPipeline();
 
-    // 初始化 NPU 与摄像头
-    bool init(int cameraIndex = 0);
+    // ---- 生命周期 ----
+    bool init(int cameraIndex);
+    bool isReady() const;
 
-    // 从摄像头抓取一帧, 返回处理后的图像 (含关键点绘制)
+    // ---- 核心处理 (每帧) ----
+    // 抓取一帧, NPU 推理, 后处理, 骨骼绘制, 关节角度计算
+    // 返回: 已绘制骨骼的 BGR 帧 (可直接 imshow)
     cv::Mat processFrame();
 
-    // 获取当前帧的 DTW 评分 (与指定动作模板对比)
-    float getDTWScore(const std::string& templateJson, int jointIndex);
+    // ---- 获取结果 ----
+    const Detection*        getDetection(int index = 0) const;
+    int                     getDetectionCount() const;
+    const JointAngles&      getJointAngles() const;
+    const std::deque<float>& getKneeAngleHistory() const;
 
-    // 获取当前帧的关节角度序列 (某一关节的历史)
-    std::vector<float> getJointHistory(int jointIndex);
+    // ---- DTW 评分 ----
+    DTWResult  computeDTW(const std::string& templateJson) const;
+    float      getCurrentDTWScore() const;
 
-    // 算三点的夹角 (例如: 髋-膝-踝 → 膝关节弯曲角)
-    static float calcAngle(cv::Point2f a, cv::Point2f b, cv::Point2f c);
-
-    // 提取所有关键关节角度
-    std::vector<float> extractJointAngles(const PoseResult& pose);
+    // ---- 静态工具 ----
+    static float calcAngle(const cv::Point2f& a,
+                           const cv::Point2f& b,
+                           const cv::Point2f& c);
+    static cv::Mat renderReferencePose(int panelW, int panelH,
+                                       const std::string& templateJson,
+                                       const std::string& actionLabel);
 
 private:
     struct Impl;

@@ -76,3 +76,4 @@ desktop.ini
 # 7. 本地构建目录
 # ======================================
 build_desktop/
+rknn_model_zoo-main/

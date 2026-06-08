@@ -1,7 +1,8 @@
 #pragma once
 
-#include <string>
 #include <functional>
+#include <memory>
+#include <string>
 
 // ==========================================
 // LLM 管线: Qwen2.5 RKLLM → 语音指导文本
