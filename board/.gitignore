@@ -1,15 +1,24 @@
+# Build artifacts
 *.o
 *.so
 *.so.*
 rehab_app
+*.rknn
+*.onnx
+
+# Cross-compile libs (kept only for offline linking)
+lib/
+
+# Test binaries
 test_rknn
 test_rknn2
 test_dims
-*.rknn
-*.onnx
-convert_yolov8_pose.py
+tests/*.o
+
+# SDK submodules
 rknpu2_headers/
-rknn-toolkit2-src/
-lib/
+
+# Temp / log files
 link_err.txt
 link_out.txt
+*.log

@@ -1,0 +1,9 @@
+[Desktop Entry]
+Name=AI 康复训练
+Comment=AI 康复训练系统 — RK3588 NPU 驱动
+Exec=/usr/local/bin/rehab-launch
+Icon=rehab
+Terminal=false
+Type=Application
+Categories=Utility;
+StartupNotify=true

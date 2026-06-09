@@ -45,7 +45,8 @@
 #define BUFFER_COUNT    4
 #define MODEL_BUF_WIDTH  640
 #define MODEL_BUF_HEIGHT 480
-#define DISP_FMT        RK_FORMAT_RGB_888
+#define MODEL_FMT       RK_FORMAT_RGB_888      // model buffer: 24bpp
+#define DISP_FMT        RK_FORMAT_XRGB_8888     // display buffer: 32bpp (XR24)
 #define MODEL_PATH      "./model/yolov8s-pose.rknn"
 
 /* =========================================================================
@@ -464,9 +465,12 @@ int main(int argc, char **argv) {
 
     // --- 3. Open DRM display ---
     fprintf(stderr, "[DEBUG] step 3: drmOpen\n");
-    int drm_fd = drmOpen("rockchip", NULL);
+    int drm_fd = drmOpen(NULL, NULL);
     if (drm_fd < 0) {
-        fprintf(stderr, "FAIL: drmOpen (try /dev/dri/card0)\n");
+        drm_fd = open("/dev/dri/card0", O_RDWR | O_CLOEXEC);
+    }
+    if (drm_fd < 0) {
+        fprintf(stderr, "FAIL: drmOpen\n");
         return -1;
     }
     fprintf(stderr, "[DEBUG] step 3 done, drm_fd=%d\n", drm_fd);
@@ -526,17 +530,17 @@ int main(int argc, char **argv) {
     int model_fd = -1;
     drmPrimeHandleToFD(drm_fd, model_handle, DRM_CLOEXEC, &model_fd);
 
-    // Buffer B: display buffer (screen-native resolution)
+    // Buffer B: display buffer (screen-native resolution, 32bpp XR24)
     struct drm_mode_create_dumb disp_dumb = {0};
     disp_dumb.width  = disp_w;
     disp_dumb.height = disp_h;
-    disp_dumb.bpp    = 24;
+    disp_dumb.bpp    = 32;
     ret = ioctl(drm_fd, DRM_IOCTL_MODE_CREATE_DUMB, &disp_dumb);
     if (ret < 0) { printf("FAIL: DRM display buffer\n"); return -1; }
     uint32_t disp_handle = disp_dumb.handle;
     uint32_t disp_pitch  = disp_dumb.pitch;
     uint32_t disp_fb_id;
-    drmModeAddFB(drm_fd, disp_w, disp_h, 24, 24, disp_pitch,
+    drmModeAddFB(drm_fd, disp_w, disp_h, 24, 32, disp_pitch,
                  disp_handle, &disp_fb_id);
 
     struct drm_mode_map_dumb disp_map = { .handle = disp_handle };
@@ -621,9 +625,9 @@ int main(int argc, char **argv) {
     model_rga.height  = MODEL_BUF_HEIGHT;
     model_rga.wstride = MODEL_BUF_WIDTH;
     model_rga.hstride = MODEL_BUF_HEIGHT;
-    model_rga.format  = DISP_FMT;
+    model_rga.format  = MODEL_FMT;
 
-    // Step 2: RGB888→RGB888 resize from model buffer to display buffer
+    // Step 2: RGB888→XRGB8888 resize from model buffer to display buffer
     rga_buffer_t disp_rga = {0};
     disp_rga.fd      = disp_fd;
     disp_rga.width   = disp_w;
@@ -716,7 +720,7 @@ int main(int argc, char **argv) {
         src_rga.fd = cam_dma_fds[idx];
 
         // 10d. RGA: NV12 → RGB888 into model buffer
-        ret = imcvtcolor(src_rga, model_rga, RK_FORMAT_YCbCr_420_SP, DISP_FMT);
+        ret = imcvtcolor(src_rga, model_rga, RK_FORMAT_YCbCr_420_SP, MODEL_FMT);
         if (ret != IM_STATUS_SUCCESS) {
             ioctl(cam_fd, VIDIOC_QBUF, &cam_buf);
             continue;
